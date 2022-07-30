@@ -1,18 +1,16 @@
 """
 EfficientFormer
 """
-import os
 import copy
+import itertools
+import os
+
 import torch
 import torch.nn as nn
-
-from typing import Dict
-import itertools
-
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from timm.models.layers import DropPath, trunc_normal_
-from timm.models.registry import register_model
 from timm.models.layers.helpers import to_2tuple
+from timm.models.registry import register_model
 
 EfficientFormer_width = {
     'l1': [48, 96, 224, 448],
@@ -30,12 +28,12 @@ EfficientFormer_depth = {
 class Attention(torch.nn.Module):
     def __init__(self, dim=384, key_dim=32, num_heads=8,
                  attn_ratio=4,
-                 resolution=7):
+                 resolution=7):  # key_dim * num_heads = 256
         super().__init__()
         self.num_heads = num_heads
         self.scale = key_dim ** -0.5
         self.key_dim = key_dim
-        self.nh_kd = nh_kd = key_dim * num_heads
+        self.nh_kd = nh_kd = key_dim * num_heads  # 256
         self.d = int(attn_ratio * key_dim)
         self.dh = int(attn_ratio * key_dim) * num_heads
         self.attn_ratio = attn_ratio
@@ -101,6 +99,7 @@ class Embedding(nn.Module):
     Patch Embedding that is implemented by a layer of conv.
     Input: tensor in shape [B, C, H, W]
     Output: tensor in shape [B, C, H/stride, W/stride]
+    # same as poolformer, except for the norm_layer
     """
 
     def __init__(self, patch_size=16, stride=16, padding=0,
@@ -120,12 +119,16 @@ class Embedding(nn.Module):
 
 
 class Flat(nn.Module):
+    """
+    BCHW-> BNC
+    """
 
     def __init__(self, ):
         super().__init__()
 
     def forward(self, x):
-        x = x.flatten(2).transpose(1, 2)
+        # B x C x H x W
+        x = x.flatten(2).transpose(1, 2)  # BNC
         return x
 
 
@@ -141,7 +144,7 @@ class Pooling(nn.Module):
             pool_size, stride=1, padding=pool_size // 2, count_include_pad=False)
 
     def forward(self, x):
-        return self.pool(x) - x
+        return self.pool(x) - x  # with removing the residual.
 
 
 class LinearMlp(nn.Module):
@@ -168,7 +171,7 @@ class LinearMlp(nn.Module):
         return x
 
 
-class Mlp(nn.Module):
+class ConvMlp(nn.Module):
     """
     Implementation of MLP with 1*1 convolutions.
     Input: tensor with shape [B, C, H, W]
@@ -196,13 +199,11 @@ class Mlp(nn.Module):
 
     def forward(self, x):
         x = self.fc1(x)
-
         x = self.norm1(x)
 
         x = self.act(x)
         x = self.drop(x)
         x = self.fc2(x)
-
         x = self.norm2(x)
 
         x = self.drop(x)
@@ -236,12 +237,15 @@ class Meta3D(nn.Module):
 
     def forward(self, x):
         if self.use_layer_scale:
-            x = x + self.drop_path(
-                self.layer_scale_1.unsqueeze(0).unsqueeze(0)
-                * self.token_mixer(self.norm1(x)))
+            x = x + \
+                self.drop_path(
+                    self.layer_scale_1.unsqueeze(0).unsqueeze(0)
+                    * self.token_mixer(self.norm1(x))
+                )
             x = x + self.drop_path(
                 self.layer_scale_2.unsqueeze(0).unsqueeze(0)
-                * self.mlp(self.norm2(x)))
+                * self.mlp(self.norm2(x))
+            )
 
         else:
             x = x + self.drop_path(self.token_mixer(self.norm1(x)))
@@ -259,8 +263,8 @@ class Meta4D(nn.Module):
 
         self.token_mixer = Pooling(pool_size=pool_size)
         mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim,
-                       act_layer=act_layer, drop=drop)
+        self.mlp = ConvMlp(in_features=dim, hidden_features=mlp_hidden_dim,
+                           act_layer=act_layer, drop=drop)
 
         self.drop_path = DropPath(drop_path) if drop_path > 0. \
             else nn.Identity()

@@ -1,14 +1,14 @@
 # Copyright (c) 2015-present, Facebook, Inc.
 # All rights reserved.
-import os
 import json
+import os
 
+import torch
+import torch.utils.data
+from timm.data import create_transform
+from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from torchvision import datasets, transforms
 from torchvision.datasets.folder import ImageFolder, default_loader
-import torch
-
-from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
-from timm.data import create_transform
 
 
 class INatDataset(ImageFolder):
