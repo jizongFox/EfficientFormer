@@ -1,3 +1,9 @@
 torch
 timm
 submitit
+
+torchvision
+loguru
+numpy
+requests
+pillow
